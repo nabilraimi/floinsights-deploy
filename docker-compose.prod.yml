@@ -1,0 +1,115 @@
+# FloInsights — orchestration de production (VPS Hetzner unique)
+#
+# Layout attendu sur le serveur :
+#   /opt/floinsights/
+#   ├── deploy/   ← ce repo (compose + Caddyfile + .env.prod)
+#   ├── api/      ← clone de floinsights-api  (buildé sur place)
+#   └── web/      ← clone de floinsights-web  (buildé sur place)
+#
+# Un seul point d'entrée : Caddy (80/443). Il route /v1/* vers l'API et
+# tout le reste vers le web → le navigateur ne voit qu'une seule origine,
+# donc le refresh token peut redevenir un cookie HttpOnly (Phase 2).
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    container_name: floinsights-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - web
+      - api
+    networks:
+      - floinsights
+
+  web:
+    build:
+      context: ../web
+      dockerfile: Dockerfile
+      args:
+        # NEXT_PUBLIC_* est figé au BUILD → passé en build-arg, pas en env runtime.
+        # /v1 = relatif = same-origin. Caddy route ensuite /v1/* vers l'API.
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-/v1}
+    container_name: floinsights-web
+    restart: unless-stopped
+    expose:
+      - "3000"
+    depends_on:
+      - api
+    networks:
+      - floinsights
+
+  api:
+    build:
+      context: ../api
+      dockerfile: Dockerfile
+    container_name: floinsights-api
+    restart: unless-stopped
+    env_file:
+      - .env.prod
+    environment:
+      NODE_ENV: production
+    expose:
+      - "3008"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - floinsights
+
+  postgres:
+    # Postgres natif suffit au palier P0 (ANALYTICS_ENGINE=postgres_native,
+    # le fallback existe dans le code). Passer à l'image pg_duckdb au palier P3
+    # (requêtes analytics > 5s / > 1M transactions).
+    image: postgres:15-alpine
+    container_name: floinsights-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - floinsights
+
+  redis:
+    image: redis:7-alpine
+    container_name: floinsights-redis
+    restart: unless-stopped
+    command: redis-server --requirepass ${REDIS_PASSWORD} --appendonly yes
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - floinsights
+
+volumes:
+  pgdata:
+  redisdata:
+  caddy_data:
+  caddy_config:
+
+networks:
+  floinsights:
+    driver: bridge

@@ -1,0 +1,43 @@
+# FloInsights — reverse proxy unique + HTTPS automatique.
+#
+# Routage : /v1/* → API (préfixe global "v1" conservé, PAS de strip),
+#           tout le reste → web Next.js.
+# Le navigateur n'appelle donc qu'une seule origine (app.floinsights.io),
+# ce qui rend le cookie refresh HttpOnly same-origin possible.
+
+{
+	email {$ACME_EMAIL}
+	# Décommenter pour tester sans Let's Encrypt (certif auto-signé) :
+	# local_certs
+}
+
+{$DOMAIN} {
+	encode gzip zstd
+
+	# --- API ---
+	@api path /v1/*
+	handle @api {
+		reverse_proxy api:3008 {
+			health_uri /v1/health
+			health_interval 30s
+		}
+	}
+
+	# --- Web (PWA Next.js) : tout le reste ---
+	handle {
+		reverse_proxy web:3000
+	}
+
+	# En-têtes de sécurité (complètent Helmet côté API)
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
+	log {
+		output stdout
+		format console
+	}
+}
