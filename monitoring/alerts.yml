@@ -1,0 +1,53 @@
+# FloInsights — règles d'alerte (format Prometheus/Mimir).
+#
+# Deux usages :
+#  A) Grafana Cloud (managé) — le plus simple : dans Alerting → Alert rules →
+#     "New alert rule", coller l'`expr` PromQL, régler la durée (`for`) et le
+#     seuil, puis router vers un contact point e-mail. Un bloc = une règle.
+#  B) Prometheus/Mimir self-hosté (plus tard) : charger ce fichier tel quel,
+#     ou le pousser dans Grafana Cloud via `mimirtool rules load alerts.yml`.
+#
+# Seuils indicatifs — à ajuster selon la taille du VPS et le trafic réel.
+
+groups:
+  - name: floinsights-api
+    rules:
+      # 1) L'API ne répond plus au scrape (le plus critique → mail immédiat).
+      - alert: APIDown
+        expr: up{job="floinsights-api"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "API FloInsights injoignable"
+          description: "Le scrape de {{ $labels.job }} échoue depuis 2 min (process arrêté, crash, ou réseau)."
+
+      # 2) L'API ralentit : l'event-loop Node est saturé (proxy de latence).
+      - alert: HighEventLoopLag
+        expr: nodejs_eventloop_lag_p99_seconds{job="floinsights-api"} > 0.2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Latence Node élevée (event-loop)"
+          description: "p99 event-loop lag > 200 ms depuis 5 min — requêtes lentes probables."
+
+      # 3) Mémoire résidente élevée (fuite éventuelle / VPS sous-dimensionné).
+      - alert: HighMemory
+        expr: process_resident_memory_bytes{job="floinsights-api"} > 700e6
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Mémoire API élevée"
+          description: "RSS > 700 Mo depuis 10 min. Ajuster le seuil selon la RAM du VPS."
+
+      # 4) CPU soutenu (charge anormale / boucle).
+      - alert: HighCPU
+        expr: rate(process_cpu_seconds_total{job="floinsights-api"}[5m]) > 0.85
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "CPU API soutenu"
+          description: "> 85 % d'un cœur en moyenne sur 10 min."

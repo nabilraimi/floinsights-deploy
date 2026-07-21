@@ -26,8 +26,10 @@ services:
       - caddy_data:/data
       - caddy_config:/config
     depends_on:
-      - web
-      - api
+      web:
+        condition: service_healthy
+      api:
+        condition: service_healthy
     networks:
       - floinsights
 
@@ -45,6 +47,12 @@ services:
       - "3000"
     depends_on:
       - api
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
     networks:
       - floinsights
 
@@ -65,6 +73,12 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3008/v1/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
     networks:
       - floinsights
 
@@ -101,6 +115,29 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - floinsights
+
+  # Agent de monitoring (métriques + logs → Grafana Cloud). OPT-IN : ne démarre
+  # qu'avec le profil "monitoring" (une fois les credentials Grafana Cloud
+  # renseignés dans .env.prod) :  docker compose --profile monitoring up -d
+  # `make deploy` (up -d sans profil) ne le lance donc pas par défaut.
+  alloy:
+    image: grafana/alloy:latest
+    container_name: floinsights-alloy
+    restart: unless-stopped
+    profiles: ["monitoring"]
+    command:
+      - run
+      - --server.http.listen-addr=0.0.0.0:12345
+      - /etc/alloy/config.alloy
+    volumes:
+      - ./alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    env_file:
+      - .env.prod
+    depends_on:
+      - api
     networks:
       - floinsights
 

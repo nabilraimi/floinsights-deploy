@@ -14,6 +14,14 @@
 {$DOMAIN} {
 	encode gzip zstd
 
+	# --- Métriques : JAMAIS exposées publiquement ---
+	# /v1/metrics ne doit être scrappé qu'en interne (agent Alloy via le réseau
+	# Docker → api:3008). On le masque côté Internet (404). Doit précéder @api.
+	@metrics path /v1/metrics /v1/metrics/*
+	handle @metrics {
+		respond 404
+	}
+
 	# --- API ---
 	@api path /v1/*
 	handle @api {

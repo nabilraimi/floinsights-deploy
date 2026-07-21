@@ -1,0 +1,31 @@
+name: Deploy (Hetzner)
+
+# Déclenchement MANUEL pour l'instant (Actions → Deploy → Run workflow).
+# Passer à `push: branches: [main]` une fois le VPS provisionné et les
+# secrets configurés, pour un déploiement automatique.
+on:
+  workflow_dispatch:
+
+# Secrets requis (Settings → Secrets and variables → Actions) :
+#   SSH_HOST  — IP/hostname du VPS
+#   SSH_USER  — utilisateur SSH (ex. deploy)
+#   SSH_KEY   — clé privée SSH autorisée sur le VPS
+#
+# Modèle build-on-server : la CI ne build pas d'image ; elle demande au
+# serveur de faire `make deploy` (git pull des 3 repos + build + up -d).
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Déploiement via SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          script: |
+            set -e
+            cd /opt/floinsights/deploy
+            make deploy
+            make ps

@@ -48,6 +48,10 @@ logs-web: ## Logs du web
 migrate: ## Applique les migrations Prisma manuellement (normalement fait au boot)
 	$(COMPOSE) exec api npx prisma migrate deploy
 
+monitoring: ## Démarre l'agent Alloy (métriques+logs → Grafana Cloud). Requiert les creds dans .env.prod
+	$(COMPOSE) --profile monitoring up -d alloy
+	@echo "✅ Alloy démarré. Vérifier : make logs puis les dashboards Grafana Cloud."
+
 backup: ## Sauvegarde immédiate de la base
 	./backup.sh
 

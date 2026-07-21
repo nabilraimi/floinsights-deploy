@@ -1,0 +1,61 @@
+// FloInsights — agent Grafana Alloy.
+// Rôle : scraper les métriques de l'API (interne) + collecter les logs Docker,
+// et POUSSER (remote_write) le tout vers Grafana Cloud (free tier).
+// Aucun port n'est exposé vers Internet : le scrape passe par le réseau Docker
+// (api:3008), les logs par le socket Docker. Seul le push sortant (HTTPS) part.
+//
+// Credentials via variables d'environnement (.env.prod) — voir .env.prod.example.
+
+// ─────────────── MÉTRIQUES ───────────────
+
+prometheus.scrape "floinsights_api" {
+  targets = [
+    { __address__ = "api:3008", job = "floinsights-api" },
+  ]
+  metrics_path    = "/v1/metrics"
+  scrape_interval = "30s"
+  forward_to      = [prometheus.remote_write.grafana_cloud.receiver]
+}
+
+prometheus.remote_write "grafana_cloud" {
+  endpoint {
+    url = sys.env("GRAFANA_CLOUD_PROM_URL")
+    basic_auth {
+      username = sys.env("GRAFANA_CLOUD_PROM_USER")
+      password = sys.env("GRAFANA_CLOUD_API_KEY")
+    }
+  }
+}
+
+// ─────────────── LOGS (conteneurs Docker) ───────────────
+
+discovery.docker "containers" {
+  host = "unix:///var/run/docker.sock"
+}
+
+// Étiquette chaque flux de logs avec le nom du conteneur (api, web, caddy…).
+discovery.relabel "containers" {
+  targets = discovery.docker.containers.targets
+
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(.*)"
+    target_label  = "container"
+  }
+}
+
+loki.source.docker "logs" {
+  host       = "unix:///var/run/docker.sock"
+  targets    = discovery.relabel.containers.output
+  forward_to = [loki.write.grafana_cloud.receiver]
+}
+
+loki.write "grafana_cloud" {
+  endpoint {
+    url = sys.env("GRAFANA_CLOUD_LOKI_URL")
+    basic_auth {
+      username = sys.env("GRAFANA_CLOUD_LOKI_USER")
+      password = sys.env("GRAFANA_CLOUD_API_KEY")
+    }
+  }
+}
