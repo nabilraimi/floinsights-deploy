@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# FloInsights — provisionnement initial d'un VPS Hetzner (Debian/Ubuntu).
+# FloInsights — provisionnement initial d'un VPS Hostinger (Debian/Ubuntu).
 # À lancer UNE fois en root sur un serveur neuf.
 set -euo pipefail
 

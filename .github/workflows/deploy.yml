@@ -1,4 +1,4 @@
-name: Deploy (Hetzner)
+name: Deploy (Hostinger)
 
 # Déclenchement MANUEL pour l'instant (Actions → Deploy → Run workflow).
 # Passer à `push: branches: [main]` une fois le VPS provisionné et les

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # FloInsights — sauvegarde PostgreSQL.
-# Dump gzippé local + envoi distant (Hetzner Storage Box via rclone) + purge.
+# Dump gzippé local + envoi distant (Cloudflare R2 via rclone) + purge.
 # À lancer depuis /opt/floinsights/deploy. Cron conseillé : tous les jours 03h.
 #   0 3 * * *  cd /opt/floinsights/deploy && ./backup.sh >> /var/log/floinsights-backup.log 2>&1
 set -euo pipefail

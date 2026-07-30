@@ -1,4 +1,4 @@
-# FloInsights — orchestration de production (VPS Hetzner unique)
+# FloInsights — orchestration de production (VPS Hostinger unique — KVM 2, 8 Go)
 #
 # Layout attendu sur le serveur :
 #   /opt/floinsights/
@@ -15,6 +15,9 @@ services:
     image: caddy:2-alpine
     container_name: floinsights-caddy
     restart: unless-stopped
+    # Reverse proxy léger : ~100 Mo suffisent largement.
+    mem_limit: 128m
+    mem_reservation: 64m
     ports:
       - "80:80"
       - "443:443"
@@ -43,6 +46,9 @@ services:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-/v1}
     container_name: floinsights-web
     restart: unless-stopped
+    # Next.js 14 en mode standalone : ~1 Go de plafond, garantie 256 Mo.
+    mem_limit: 1024m
+    mem_reservation: 256m
     expose:
       - "3000"
     depends_on:
@@ -62,6 +68,9 @@ services:
       dockerfile: Dockerfile
     container_name: floinsights-api
     restart: unless-stopped
+    # API NestJS + crons in-process : ~1 Go de plafond, garantie 512 Mo.
+    mem_limit: 1024m
+    mem_reservation: 512m
     env_file:
       - .env.prod
     environment:
@@ -89,6 +98,22 @@ services:
     image: postgres:15-alpine
     container_name: floinsights-db
     restart: unless-stopped
+    # Poste le plus gourmand : plafond 2,5 Go, garantie 1 Go.
+    mem_limit: 2560m
+    mem_reservation: 1g
+    # Tuning aligné sur ce plafond (par défaut, Postgres ignore la RAM dispo).
+    # shared_buffers ≈ 20 % du plafond ; effective_cache_size ≈ ce que l'OS peut
+    # mettre en cache disque. À relever si on augmente mem_limit.
+    command:
+      - postgres
+      - -c
+      - shared_buffers=512MB
+      - -c
+      - effective_cache_size=1536MB
+      - -c
+      - maintenance_work_mem=128MB
+      - -c
+      - work_mem=16MB
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -107,7 +132,17 @@ services:
     image: redis:7-alpine
     container_name: floinsights-redis
     restart: unless-stopped
-    command: redis-server --requirepass ${REDIS_PASSWORD} --appendonly yes
+    # Plafond conteneur 768 Mo > maxmemory 512 Mo : marge pour le fork COW de la
+    # réécriture AOF. maxmemory borne le dataset ; volatile-lru n'évince QUE les
+    # clés à TTL (cache analytics, régénérable) et épargne les clés sans TTL
+    # (compteurs de version du cache) ainsi que la blacklist des refresh tokens
+    # tant qu'elle reste petite. NE PAS mettre allkeys-lru : évincerait la
+    # blacklist (un token révoqué redeviendrait valide sous pression mémoire).
+    mem_limit: 768m
+    mem_reservation: 256m
+    command: >-
+      redis-server --requirepass ${REDIS_PASSWORD} --appendonly yes
+      --maxmemory 512mb --maxmemory-policy volatile-lru
     volumes:
       - redisdata:/data
     healthcheck:
@@ -127,6 +162,9 @@ services:
     container_name: floinsights-alloy
     restart: unless-stopped
     profiles: ["monitoring"]
+    # Agent de collecte : léger, mais borné pour ne pas grignoter la marge VPS.
+    mem_limit: 256m
+    mem_reservation: 64m
     command:
       - run
       - --server.http.listen-addr=0.0.0.0:12345

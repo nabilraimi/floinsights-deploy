@@ -1,6 +1,6 @@
 # floinsights-deploy — Orchestration de production
 
-Descripteur de déploiement de FloInsights sur **un VPS Hetzner unique** (Docker Compose).
+Descripteur de déploiement de FloInsights sur **un VPS Hostinger unique** (KVM 2, 8 Go — Docker Compose).
 Ce repo ne contient **aucun** code applicatif : il orchestre les images de
 `floinsights-api` et `floinsights-web`, avec Caddy en frontal, PostgreSQL et Redis.
 
@@ -62,6 +62,15 @@ Génération de secrets forts : `openssl rand -base64 32`.
 ## Sauvegardes
 
 - `backup.sh` : `pg_dump` gzippé dans `backups/`, envoi distant optionnel (rclone), purge à J+`BACKUP_RETENTION_DAYS`.
+- **Cible distante = Cloudflare R2** (S3-compatible, déjà utilisé pour le stockage fichiers — 10 Go gratuits). Backblaze B2 fonctionne aussi. Configurer une fois le remote rclone :
+  ```bash
+  rclone config
+  #  name> r2   |   storage> s3   |   provider> Cloudflare
+  #  access_key_id / secret_access_key = clés R2 (mêmes que R2_* dans .env.prod)
+  #  endpoint> https://<R2_ACCOUNT_ID>.r2.cloudflarestorage.com
+  rclone mkdir r2:floinsights-backups   # créer le bucket/chemin une fois
+  ```
+  Puis dans `.env.prod` : `BACKUP_REMOTE=r2:floinsights-backups`.
 - Cron conseillé :
   ```
   0 3 * * *  cd /opt/floinsights/deploy && ./backup.sh >> /var/log/floinsights-backup.log 2>&1
@@ -95,7 +104,7 @@ Stack de supervision **sans rien self-héberger** : métriques + logs + dashboar
 ### Comment ça marche (architecture *push*)
 
 ```
-VPS Hetzner (réseau Docker interne)
+VPS Hostinger (réseau Docker interne)
   api  ──/v1/metrics──┐
   logs conteneurs ────┤→  alloy (agent)  ──push HTTPS──▶  Grafana Cloud
   …                   ┘   scrape + tail                   (dashboards, alertes)
