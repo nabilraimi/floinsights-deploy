@@ -38,6 +38,106 @@ make deploy
 
 Génération de secrets forts : `openssl rand -base64 32`.
 
+> **Instance de démonstration ?** Après `make deploy`, voir la section
+> [Instance de démonstration](#instance-de-démonstration) : `make seed-demo` (une
+> fois) puis le bouton « Réinitialiser la démo » avant chaque rendez-vous client.
+
+## Instance de démonstration
+
+Cette section décrit comment faire tourner FloInsights en **mode démonstration** :
+une organisation démo peuplée de données réalistes, **réinitialisable en un clic**
+avant chaque rendez-vous client — **sans CLI, sans wiper toute la base**.
+
+> ⚠️ **Réservé à une instance de démo.** Ne **jamais** activer la réinitialisation
+> démo sur une instance de production avec de vrais clients (voir la sécurité plus bas).
+
+### Runbook « jour de démo » (checklist 5 min)
+
+> Pré-requis (une seule fois) : `DEMO_RESET_ENABLED=true` dans `.env.prod` + `make seed-demo` déjà passé.
+
+1. **Santé** — `curl -fsS https://<DOMAIN>/v1/health` → `ok`. *(sinon `make logs-api`)*
+2. **Reset** — se connecter en **SUPER_ADMIN** → `/admin` → org **`demo-bj`** → **« Réinitialiser la démo »** → confirmer. *(~5–10 s)*
+3. **Recommandations** — `/recommendations` → **« Générer »** *(recos calculées à la demande)*.
+4. **Vérif express** — `/dashboard` charge avec des chiffres ; ouvrir **`/caisses`** (2 caisses, 1 session ouverte) ; `/transactions` montre le **badge source** (Terrain/Caisse).
+5. **Prêt** — se déconnecter et se reconnecter avec le compte de la démo (`admin@demo.floinsights.io`, mdp `FloDemo2026!`).
+
+En cas de souci de données : refaire l'étape 2. En dernier recours : `make shell-api` → `npx prisma migrate reset --force` (⚠️ wipe complet, voir §6).
+
+### 1. Activer le mode démo dans `.env.prod`
+
+```bash
+# Instance de DÉMONSTRATION uniquement
+DEMO_RESET_ENABLED=true      # affiche le bouton « Réinitialiser la démo » (SUPER_ADMIN)
+DEMO_ORG_SLUG=demo-bj        # slug de l'organisation démo (défaut : demo-bj)
+```
+
+Ces variables sont chargées par l'API via `env_file: .env.prod` (aucune autre
+config à toucher). Sur une **vraie prod**, laisser `DEMO_RESET_ENABLED=false`.
+
+### 2. Premier déploiement + peuplement initial
+
+```bash
+make deploy       # build + up -d (les migrations Prisma s'appliquent au boot de l'API)
+make seed-demo    # crée l'organisation démo (demo-bj) + tous les comptes + données
+```
+
+`make seed-demo` (= `prisma db seed`) est à lancer **une seule fois** après le
+premier déploiement. Le seed est **auto-daté** (dates relatives à `new Date()`) et
+**couvre tous les modules** : ventes terrain, **caisses/sessions/Rapport Z**,
+mouvements d'espèces, factures, stock, trésorerie (dont « espèces en caisse »),
+OHADA, objectifs (dont **objectif par caisse**), dépôts & crédits, remises, dons,
+pricing, rapports.
+
+### 3. Avant chaque démo — le bouton « Réinitialiser la démo »
+
+Connecté en **SUPER_ADMIN** (`superadmin@demo.floinsights.io`) :
+
+1. `/admin` → ouvrir l'**organisation démo** (`demo-bj`).
+2. Cliquer **« Réinitialiser la démo »** (le bouton n'apparaît **que** sur cette
+   org **et** si `DEMO_RESET_ENABLED=true`) → confirmer.
+
+Effet : **efface + régénère les données transactionnelles de cette seule
+organisation** (ventes, caisses/sessions/Z, objectifs, factures…) en **conservant
+le référentiel** (utilisateurs, produits, clients, circuits). Endpoint sous-jacent :
+`POST /v1/admin/demo/reset`. Le statut est exposé par `GET /v1/admin/demo`.
+
+Étape optionnelle (données 100 % prêtes) : `/recommendations` → **« Générer »**
+(les recommandations sont calculées à la demande, pas stockées).
+
+### 4. Comptes de démo (mot de passe commun : `FloDemo2026!`)
+
+| Rôle | Email |
+|---|---|
+| Super Admin | `superadmin@demo.floinsights.io` |
+| Admin | `admin@demo.floinsights.io` |
+| Manager | `manager@demo.floinsights.io` |
+| Commerciaux | `kofi@` · `ibrahim@` · `grace@` · `amina@` · `yao@` `demo.floinsights.io` |
+
+> Détails des personas et de la couverture par page : `floinsights-api/prisma/DEMO.md`.
+
+### 5. Sécurité du reset démo
+
+- **Triple verrou** : rôle `SUPER_ADMIN` **+** `DEMO_RESET_ENABLED=true` **+** cible
+  limitée à l'org dont le slug = `DEMO_ORG_SLUG`. Toute autre organisation est
+  intouchable — sûr même sur une instance partagée.
+- **Non destructif hors org démo** : aucune autre donnée n'est effacée ; le
+  référentiel de l'org démo est conservé, seules les données transactionnelles
+  sont régénérées.
+- **Réversible côté prod réelle** : si l'instance devient une vraie prod, mettre
+  `DEMO_RESET_ENABLED=false` + `make up` → le bouton disparaît, l'endpoint renvoie 403.
+
+### 6. Alternative CLI — reset base complète
+
+Pour repartir d'une base totalement vierge (⚠️ **wipe toute la base**, tous tenants) :
+
+```bash
+make shell-api                     # dans le conteneur api
+npx prisma migrate reset --force   # drop + migrations + seed automatique
+```
+
+À réserver au tout premier setup ou à une instance mono-démo. Le bouton du §3 est
+la voie recommandée au quotidien.
+
 ## Exploitation courante
 
 | Commande | Effet |
@@ -48,6 +148,7 @@ Génération de secrets forts : `openssl rand -base64 32`.
 | `make backup` | dump PostgreSQL immédiat |
 | `make restore FILE=backups/pg_XXXX.sql.gz` | restauration |
 | `make migrate` | migrations Prisma manuelles |
+| `make seed-demo` | peuple l'org démo + comptes (instance de démonstration) |
 | `make shell-db` | psql |
 
 ## TLS / Cloudflare

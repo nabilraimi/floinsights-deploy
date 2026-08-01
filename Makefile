@@ -7,7 +7,7 @@ WEB_DIR := ../web
 
 .DEFAULT_GOAL := help
 .PHONY: help deploy pull build up down restart ps logs logs-api logs-web \
-        migrate backup restore shell-api shell-db check
+        migrate seed-demo backup restore shell-api shell-db check
 
 help: ## Affiche cette aide
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | \
@@ -47,6 +47,9 @@ logs-web: ## Logs du web
 
 migrate: ## Applique les migrations Prisma manuellement (normalement fait au boot)
 	$(COMPOSE) exec api npx prisma migrate deploy
+
+seed-demo: ## Peuple l'org démo + comptes (à lancer UNE fois, instance de démonstration)
+	$(COMPOSE) exec api npx prisma db seed
 
 monitoring: ## Démarre l'agent Alloy (métriques+logs → Grafana Cloud). Requiert les creds dans .env.prod
 	$(COMPOSE) --profile monitoring up -d alloy
